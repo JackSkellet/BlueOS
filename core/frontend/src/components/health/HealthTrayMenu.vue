@@ -127,6 +127,7 @@ import { Dictionary } from '@/types/common'
 import { RaspberryEventType } from '@/types/system-information/platform'
 import { Disk } from '@/types/system-information/system'
 import mavlink_store_get from '@/utils/mavlink'
+import { mavlinkFlagEnabled } from '@/utils/mavlink2rest_compat'
 
 const FETCH_TYPES = [
   FetchType.SystemTemperatureType,
@@ -216,7 +217,11 @@ export default Vue.extend({
       }
       const system_id = message?.header.system_id
       const autopilot_type = message?.message.autopilot.type
-      const armed = Boolean(message?.message.base_mode.bits & MavModeFlag.MAV_MODE_FLAG_SAFETY_ARMED)
+      const armed = mavlinkFlagEnabled(
+        message?.message.base_mode,
+        'MAV_MODE_FLAG_SAFETY_ARMED',
+        MavModeFlag.MAV_MODE_FLAG_SAFETY_ARMED,
+      )
       if (autopilot_data.system_id !== system_id) {
         autopilot_data.setSystemId(system_id)
       }

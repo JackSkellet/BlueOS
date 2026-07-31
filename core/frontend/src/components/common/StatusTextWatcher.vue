@@ -13,6 +13,7 @@
 <script lang="ts">
 import mavlink2rest from '@/libs/MAVLink2Rest'
 import Listener from '@/libs/MAVLink2Rest/Listener'
+import { mavlinkString } from '@/utils/mavlink2rest_compat'
 
 type StatusLine = {
   text: string
@@ -35,7 +36,7 @@ export default {
   },
   mounted() {
     this.listener = mavlink2rest.startListening('STATUSTEXT').setCallback((receivedMessage) => {
-      const text = receivedMessage.message.text.join('')
+      const text = mavlinkString(receivedMessage.message.text)
       const last = this.messages[this.messages.length - 1]
       if (last?.text === text) {
         return
