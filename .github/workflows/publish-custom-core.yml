@@ -1,10 +1,9 @@
 name: Publish Stripped Down BlueOS Core
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - codex/stripped-down
+    tags:
+      - Stripped-V*
 
 permissions:
   contents: read
@@ -23,7 +22,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: Stripped-V2
           submodules: recursive
 
       - name: Set up QEMU
@@ -40,21 +38,10 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Preserve Stripped-V1
-        env:
-          IMAGE: ${{ secrets.DOCKER_USERNAME }}/blueos-core
-          RELEASE_DIGEST: sha256:aecc79cc9fff839165d9c931581ae1adb1eef5973d50f1427b20044bfef4cc94
-        run: |
-          docker buildx imagetools create \
-            --tag "${IMAGE}:Stripped-V1" \
-            "${IMAGE}@${RELEASE_DIGEST}"
-
-          docker buildx imagetools inspect "${IMAGE}:Stripped-V1"
-
       - name: Build and publish Core
         env:
           IMAGE: ${{ secrets.DOCKER_USERNAME }}/blueos-core
-          RELEASE_TAG: Stripped-V2
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           docker buildx build \
             --platform linux/arm/v7,linux/arm64/v8 \
