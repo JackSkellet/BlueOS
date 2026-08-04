@@ -92,6 +92,7 @@ const menus = [
     icon: 'mdi-radar',
     route: '/vehicle/pings',
     advanced: false,
+    service: 'ping',
     text: 'Manage detected Ping family sonar devices, connected to either your Onboard Computer'
       + ' or its local network.',
   },
@@ -136,6 +137,7 @@ const menus = [
     icon: 'mdi-filmstrip',
     route: '/tools/records',
     advanced: false,
+    service: 'recorder',
     text: 'Browse, preview, and download recorded MP4 sessions.',
   },
   {
@@ -159,6 +161,7 @@ export interface menuItem {
   route?: string, // The option routes to a different address
   submenus?: menuItem[], // Menus that the main option provide
   disabled?: boolean, // The option is disabled
+  service?: 'ping' | 'recorder', // Hide the option when its backing service is disabled
 }
 
 export default menus

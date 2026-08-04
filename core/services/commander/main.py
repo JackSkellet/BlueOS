@@ -7,7 +7,7 @@ import subprocess
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict, List
 
 import appdirs
 from commonwealth.utils.apis import GenericErrorHandlingRoute
@@ -22,6 +22,12 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi_versioning import VersionedFastAPI, version
 from filebrowser.filebrowser import filebrowser
 from loguru import logger
+from parameter_profiles import (
+    create_parameter_profile,
+    delete_parameter_profile,
+    load_parameter_profiles,
+    rename_parameter_profile,
+)
 from service_control import (
     MANAGED_CORE_SERVICES,
     get_core_service_states,
@@ -33,6 +39,7 @@ SERVICE_NAME = "commander"
 LOG_FOLDER_PATH = os.environ.get("BLUEOS_LOG_FOLDER_PATH", "/var/logs/blueos")
 MAVLINK_LOG_FOLDER_PATH = os.environ.get("BLUEOS_MAVLINK_LOG_FOLDER_PATH", "/shortcuts/ardupilot_logs/logs/")
 STARTUP_CONFIG_PATH = Path(appdirs.user_config_dir("bootstrap"), "startup.json")
+PARAMETER_PROFILES_PATH = Path(appdirs.user_config_dir(SERVICE_NAME), "parameter_profiles.json")
 
 logging.basicConfig(handlers=[InterceptHandler()], level=0)
 init_logger(SERVICE_NAME)
@@ -198,6 +205,41 @@ async def set_managed_service_state(service_name: str, enabled: bool) -> Dict[st
             detail=f"Unsupported managed service: {service_name}",
         )
     return set_core_service_enabled(STARTUP_CONFIG_PATH, service_name, enabled)
+
+
+@app.get("/parameter_profiles", status_code=status.HTTP_200_OK)
+@version(1, 0)
+async def parameter_profiles() -> List[Dict[str, Any]]:
+    return load_parameter_profiles(PARAMETER_PROFILES_PATH)
+
+
+@app.post("/parameter_profiles", status_code=status.HTTP_201_CREATED)
+@version(1, 0)
+async def save_parameter_profile(name: str, parameters: Dict[str, float]) -> Dict[str, Any]:
+    try:
+        return create_parameter_profile(PARAMETER_PROFILES_PATH, name, parameters)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+
+@app.put("/parameter_profiles/{profile_id}", status_code=status.HTTP_200_OK)
+@version(1, 0)
+async def rename_saved_parameter_profile(profile_id: str, name: str) -> Dict[str, Any]:
+    try:
+        return rename_parameter_profile(PARAMETER_PROFILES_PATH, profile_id, name)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parameter profile not found") from error
+
+
+@app.delete("/parameter_profiles/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
+@version(1, 0)
+async def remove_parameter_profile(profile_id: str) -> None:
+    try:
+        delete_parameter_profile(PARAMETER_PROFILES_PATH, profile_id)
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parameter profile not found") from error
 
 
 @app.post("/services/remove_log", status_code=status.HTTP_200_OK)

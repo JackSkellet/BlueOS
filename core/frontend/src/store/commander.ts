@@ -10,6 +10,11 @@ import back_axios, { isBackendOffline } from '@/utils/api'
 
 const notifier = new Notifier(commander_service)
 
+export interface ManagedServiceStates {
+  ping: boolean
+  recorder: boolean
+}
+
 @Module({
   dynamic: true,
   store,
@@ -25,6 +30,11 @@ class CommanderStore extends VuexModule {
 
   on_board_computer_immediate_reboot = false
 
+  managed_service_states: ManagedServiceStates = {
+    ping: true,
+    recorder: true,
+  }
+
   @Mutation
   setOnBoardComputerRebootRequired(required: boolean): void {
     this.on_board_computer_reboot_required = required
@@ -33,6 +43,26 @@ class CommanderStore extends VuexModule {
   @Mutation
   setOnBoardComputerImmediateReboot(immediate: boolean): void {
     this.on_board_computer_immediate_reboot = immediate
+  }
+
+  @Mutation
+  setManagedServiceStates(states: ManagedServiceStates): void {
+    this.managed_service_states = states
+  }
+
+  @Action
+  async loadManagedServiceStates(): Promise<ManagedServiceStates> {
+    const response = await back_axios({
+      method: 'get',
+      url: `${this.API_URL}/services/enabled`,
+      timeout: 10000,
+    })
+    const states = {
+      ping: Boolean(response.data?.ping),
+      recorder: Boolean(response.data?.recorder),
+    }
+    this.setManagedServiceStates(states)
+    return states
   }
 
   @Action
