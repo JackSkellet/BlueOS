@@ -177,15 +177,11 @@ export default Vue.extend({
       this.operation_error = null
       try {
         const [core_response, installed_extensions] = await Promise.all([
-          back_axios({
-            method: 'get',
-            url: `${commander.API_URL}/services/enabled`,
-            timeout: 10000,
-          }),
+          commander.loadManagedServiceStates(),
           kraken.getInstalledExtensions(),
         ])
-        this.ping_enabled = Boolean(core_response.data?.ping)
-        this.recorder_enabled = Boolean(core_response.data?.recorder)
+        this.ping_enabled = core_response.ping
+        this.recorder_enabled = core_response.recorder
 
         const cloud = installed_extensions.find(
           (extension) => extension.identifier === MAJOR_TOM_EXTENSION_IDENTIFIER,
@@ -242,6 +238,10 @@ export default Vue.extend({
       })
       this.ping_enabled = Boolean(response.data?.ping)
       this.recorder_enabled = Boolean(response.data?.recorder)
+      commander.setManagedServiceStates({
+        ping: this.ping_enabled,
+        recorder: this.recorder_enabled,
+      })
       this.restarting_core = true
 
       try {

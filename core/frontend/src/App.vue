@@ -398,6 +398,7 @@ import blueos_blue from '@/assets/img/blueos-logo-blue.svg'
 import blueos_white from '@/assets/img/blueos-logo-white.svg'
 import consoleLogger from '@/libs/console-logger'
 import settings from '@/libs/settings'
+import commander from '@/store/commander'
 import customization_store from '@/store/customization'
 import helper from '@/store/helper'
 import wifi from '@/store/wifi'
@@ -565,7 +566,10 @@ export default Vue.extend({
           }
         })
 
-      const filteredDefaultMenu = this.menus.filter((menu) => !menu.advanced || settings.is_pirate_mode)
+      const filteredDefaultMenu = this.menus.filter(
+        (menu) => (!menu.advanced || settings.is_pirate_mode)
+          && (!menu.service || commander.managed_service_states[menu.service]),
+      )
 
       const extensions: menuItem[] = [
         {
@@ -794,6 +798,9 @@ export default Vue.extend({
     this.checkTour()
     updateTime()
     customization_store.refreshAll()
+    commander.loadManagedServiceStates().catch((error) => {
+      console.error(`Failed to load managed service states: ${error}`)
+    })
 
     const body = document.querySelector('body')
     body?.addEventListener('click', (event) => {

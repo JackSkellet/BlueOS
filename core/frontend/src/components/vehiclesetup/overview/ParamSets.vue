@@ -14,7 +14,10 @@
         </p>
       </v-card-text>
       <v-card-actions>
-        <v-btn :disabled="wipe_successful" :loading="erasing" color="primary" @click="show_warning = true">
+        <v-btn :disabled="wipe_successful" :loading="erasing" color="error" @click="show_warning = true">
+          <v-icon left>
+            mdi-skull-crossbones
+          </v-icon>
           Reset All Parameters
         </v-btn>
         <v-btn
@@ -58,6 +61,77 @@
         </p>
       </v-card-actions>
     </v-card>
+    <v-card class="card-container">
+      <v-card-title class="align-center">
+        Parameter Profiles
+      </v-card-title>
+      <v-card-text>
+        <p>Back up the current vehicle setup or upload parameter files for quick reuse.</p>
+        <v-alert v-if="profile_error" type="error" dense text>
+          {{ profile_error }}
+        </v-alert>
+        <div class="d-flex align-center flex-wrap">
+          <v-btn
+            v-tooltip="'Save the current vehicle parameters as a profile'"
+            color="primary"
+            :disabled="!parameters_finished_loading"
+            :loading="saving_profile"
+            @click="backupCurrentParameters"
+          >
+            <v-icon left>
+              mdi-content-save
+            </v-icon>
+            Back up current parameters
+          </v-btn>
+          <v-file-input
+            v-model="profile_files"
+            accept=".params,.parm,.param"
+            class="profile-file-input"
+            dense
+            multiple
+            outlined
+            prepend-icon="mdi-file-upload"
+            label="Upload parameter files"
+            :disabled="saving_profile"
+            @change="uploadParameterFiles"
+          />
+        </div>
+        <v-progress-linear v-if="loading_profiles" indeterminate color="primary" />
+        <v-list v-else-if="profiles.length" two-line>
+          <v-list-item v-for="profile in profiles" :key="profile.id">
+            <v-list-item-content>
+              <v-list-item-title>{{ profile.name }}</v-list-item-title>
+              <v-list-item-subtitle>
+                {{ Object.keys(profile.parameters).length }} parameters
+              </v-list-item-subtitle>
+            </v-list-item-content>
+            <v-list-item-action class="profile-actions">
+              <v-btn color="primary" small @click="loadParams(profile.name, profile.parameters)">
+                <v-icon left small>
+                  mdi-upload
+                </v-icon>
+                Load and apply
+              </v-btn>
+              <v-btn v-tooltip="'Edit profile name'" small outlined @click="startRenamingProfile(profile)">
+                <v-icon left small>
+                  mdi-pencil
+                </v-icon>
+                Edit name
+              </v-btn>
+              <v-btn color="error" small outlined @click="profile_to_delete = profile">
+                <v-icon left small>
+                  mdi-delete
+                </v-icon>
+                Delete item
+              </v-btn>
+            </v-list-item-action>
+          </v-list-item>
+        </v-list>
+        <p v-else class="text--secondary mb-0">
+          No parameter profiles saved yet.
+        </p>
+      </v-card-text>
+    </v-card>
     <ParameterLoader
       v-if="selected_paramset"
       :parameters="selected_paramset"
@@ -70,10 +144,35 @@
       confirm-label="Yes, reset them"
       @confirm="wipe"
     />
+    <WarningDialog
+      :value="profile_to_delete !== undefined"
+      :message="`Delete parameter profile '${profile_to_delete?.name ?? ''}'?`"
+      confirm-label="Delete item"
+      @input="profile_to_delete = undefined"
+      @confirm="deleteProfile"
+    />
+    <v-dialog v-model="rename_profile_dialog" max-width="500px">
+      <v-card>
+        <v-card-title>Edit profile name</v-card-title>
+        <v-card-text>
+          <v-text-field v-model="profile_name" autofocus label="Profile name" @keyup.enter="renameProfile" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn text @click="rename_profile_dialog = false">
+            Cancel
+          </v-btn>
+          <v-btn color="primary" :disabled="!profile_name.trim()" @click="renameProfile">
+            Save name
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-row>
 </template>
 
 <script lang="ts">
+import { format } from 'date-fns'
 import { SemVer } from 'semver'
 import Vue from 'vue'
 
@@ -90,10 +189,19 @@ import { fetchParamSets, paramSetsForFirmware } from '@/libs/parameter_repositor
 import settings from '@/libs/settings'
 import autopilot_data from '@/store/autopilot'
 import autopilot from '@/store/autopilot_manager'
+import commander from '@/store/commander'
+import Parameter from '@/types/autopilot/parameter'
 import { Dictionary } from '@/types/common'
 import { frontend_service } from '@/types/frontend_services'
+import back_axios from '@/utils/api'
 
 const notifier = new Notifier(frontend_service)
+
+interface ParameterProfile {
+  id: string
+  name: string
+  parameters: Dictionary<number>
+}
 
 export default Vue.extend({
   name: 'ParamSets',
@@ -111,6 +219,15 @@ export default Vue.extend({
     erasing: false,
     settings,
     show_warning: false,
+    profiles: [] as ParameterProfile[],
+    profile_files: [] as File[],
+    loading_profiles: true,
+    saving_profile: false,
+    profile_error: null as string | null,
+    profile_to_delete: undefined as ParameterProfile | undefined,
+    profile_to_rename: undefined as ParameterProfile | undefined,
+    profile_name: '',
+    rename_profile_dialog: false,
   }),
   computed: {
     vehicle(): string | null {
@@ -125,10 +242,14 @@ export default Vue.extend({
     warningMessage(): string {
       return 'You will lose ALL your parameters, vehicle setup, and calibrations. Are you sure you want to reset?'
     },
+    parameters_finished_loading(): boolean {
+      return autopilot_data.finished_loading
+    },
   },
   mounted() {
     fetchCurrentBoard()
     this.loadParamSets()
+    this.loadProfiles()
   },
   methods: {
     async loadParamSets() {
@@ -141,6 +262,107 @@ export default Vue.extend({
     async loadParams(name: string, paramset: Dictionary<number>) {
       this.selected_paramset_name = name
       this.selected_paramset = paramset
+    },
+    async loadProfiles(): Promise<void> {
+      this.loading_profiles = true
+      this.profile_error = null
+      try {
+        const response = await back_axios.get(`${commander.API_URL}/parameter_profiles`)
+        this.profiles = response.data
+      } catch (error) {
+        this.profile_error = `Unable to load parameter profiles: ${String(error)}`
+      } finally {
+        this.loading_profiles = false
+      }
+    },
+    currentParameters(): Dictionary<number> {
+      return Object.fromEntries(
+        autopilot_data.parameters
+          .filter((parameter: Parameter) => !parameter.readonly)
+          .map((parameter: Parameter) => [parameter.name, parameter.value]),
+      )
+    },
+    async backupCurrentParameters(): Promise<void> {
+      const name = `Current parameters ${format(new Date(), 'yyyy-MM-dd HH:mm')}`
+      await this.saveProfile(name, this.currentParameters())
+    },
+    async saveProfile(name: string, parameters: Dictionary<number>): Promise<void> {
+      this.saving_profile = true
+      this.profile_error = null
+      try {
+        await back_axios.post(`${commander.API_URL}/parameter_profiles`, parameters, { params: { name } })
+        await this.loadProfiles()
+      } catch (error) {
+        this.profile_error = `Unable to save parameter profile: ${String(error)}`
+      } finally {
+        this.saving_profile = false
+      }
+    },
+    parseParameterFile(content: string): Dictionary<number> {
+      const parameters: Dictionary<number> = {}
+      const formats = [
+        /^\S+\s+\S+\s+(\S+)\s+(\S+)/,
+        /^([^,]+)\s*,\s*([^,]+)/,
+        /^(\S+)\s+(\S+)/,
+      ]
+
+      content.split(/\r?\n/).forEach((line) => {
+        const trimmed_line = line.trim()
+        if (!trimmed_line || trimmed_line.startsWith('#')) return
+        const match = formats.map((pattern) => trimmed_line.match(pattern)).find((result) => result !== null)
+        if (!match) return
+        const value = Number.parseFloat(match[2])
+        if (!Number.isNaN(value)) parameters[match[1].trim()] = value
+      })
+      return parameters
+    },
+    async uploadParameterFiles(files: File[] | File | null): Promise<void> {
+      let selected_files: File[] = []
+      if (Array.isArray(files)) {
+        selected_files = files
+      } else if (files) {
+        selected_files = [files]
+      }
+      if (!selected_files.length) return
+
+      for (const file of selected_files) {
+        const parameters = this.parseParameterFile(await file.text())
+        if (!Object.keys(parameters).length) {
+          this.profile_error = `${file.name} does not contain any valid parameters.`
+          continue
+        }
+        await this.saveProfile(file.name.replace(/\.(params?|parm)$/i, ''), parameters)
+      }
+      this.profile_files = []
+    },
+    startRenamingProfile(profile: ParameterProfile): void {
+      this.profile_to_rename = profile
+      this.profile_name = profile.name
+      this.rename_profile_dialog = true
+    },
+    async renameProfile(): Promise<void> {
+      if (!this.profile_to_rename || !this.profile_name.trim()) return
+      this.profile_error = null
+      try {
+        await back_axios.put(`${commander.API_URL}/parameter_profiles/${this.profile_to_rename.id}`, undefined, {
+          params: { name: this.profile_name },
+        })
+        this.rename_profile_dialog = false
+        await this.loadProfiles()
+      } catch (error) {
+        this.profile_error = `Unable to rename parameter profile: ${String(error)}`
+      }
+    },
+    async deleteProfile(): Promise<void> {
+      if (!this.profile_to_delete) return
+      this.profile_error = null
+      try {
+        await back_axios.delete(`${commander.API_URL}/parameter_profiles/${this.profile_to_delete.id}`)
+        this.profile_to_delete = undefined
+        await this.loadProfiles()
+      } catch (error) {
+        this.profile_error = `Unable to delete parameter profile: ${String(error)}`
+      }
     },
     async restartAutopilot(): Promise<void> {
       this.rebooting = true
@@ -192,6 +414,17 @@ button {
   flex: 1 1 calc(50% - 10px);
   max-width: calc(50% - 0px);
   min-width: 600px;
+}
+
+.profile-file-input {
+  max-width: 420px;
+  margin: 10px;
+}
+
+.profile-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
 }
 
 .virtual-table-row {
