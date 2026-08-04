@@ -1,16 +1,16 @@
-name: Publish custom BlueOS Core
+name: Publish Stripped Down BlueOS Core
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - codex/dockerhub-publish-ci
+      - codex/stripped-down
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-custom-blueos-core
+  group: publish-stripped-down-blueos-core
   cancel-in-progress: false
 
 jobs:
@@ -42,6 +42,7 @@ jobs:
       - name: Build and publish Core
         env:
           IMAGE: ${{ secrets.DOCKER_USERNAME }}/blueos-core
+          RELEASE_TAG: Stripped-V1
         run: |
           SHORT_SHA="${GITHUB_SHA::12}"
 
@@ -51,11 +52,11 @@ jobs:
             --build-arg VITE_APP_GIT_DESCRIBE="$(git describe --long --always --dirty --all)" \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
-            --tag "${IMAGE}:dynamic-parameter-metadata" \
+            --tag "${IMAGE}:${RELEASE_TAG}" \
             --tag "${IMAGE}:sha-${SHORT_SHA}" \
             --file core/Dockerfile \
             --provenance=false \
             --push \
             core
 
-          docker buildx imagetools inspect "${IMAGE}:dynamic-parameter-metadata"
+          docker buildx imagetools inspect "${IMAGE}:${RELEASE_TAG}"

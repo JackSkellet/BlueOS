@@ -100,6 +100,8 @@
             </v-card-text>
           </v-card>
 
+          <services-settings />
+
           <v-card class="mb-4" elevation="2">
             <v-card-title class="d-flex align-center">
               <v-avatar color="deep-purple" size="36" class="mr-3">
@@ -499,6 +501,7 @@ import Vue from 'vue'
 import SpinningLogo from '@/components/common/SpinningLogo.vue'
 import WarningDialog from '@/components/common/WarningDialog.vue'
 import ThemeCustomization from '@/components/customization/ThemeCustomization.vue'
+import ServicesSettings from '@/components/settings/ServicesSettings.vue'
 import filebrowser from '@/libs/filebrowser'
 import Notifier from '@/libs/notifier'
 import settings from '@/libs/settings'
@@ -517,6 +520,7 @@ export default Vue.extend({
   name: 'SettingsView',
 
   components: {
+    ServicesSettings,
     ThemeCustomization,
     SpinningLogo,
     WarningDialog,
