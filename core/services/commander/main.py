@@ -22,11 +22,17 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi_versioning import VersionedFastAPI, version
 from filebrowser.filebrowser import filebrowser
 from loguru import logger
+from service_control import (
+    MANAGED_CORE_SERVICES,
+    get_core_service_states,
+    set_core_service_enabled,
+)
 from uvicorn import Config, Server
 
 SERVICE_NAME = "commander"
 LOG_FOLDER_PATH = os.environ.get("BLUEOS_LOG_FOLDER_PATH", "/var/logs/blueos")
 MAVLINK_LOG_FOLDER_PATH = os.environ.get("BLUEOS_MAVLINK_LOG_FOLDER_PATH", "/shortcuts/ardupilot_logs/logs/")
+STARTUP_CONFIG_PATH = Path(appdirs.user_config_dir("bootstrap"), "startup.json")
 
 logging.basicConfig(handlers=[InterceptHandler()], level=0)
 init_logger(SERVICE_NAME)
@@ -175,6 +181,23 @@ async def reset_settings(i_know_what_i_am_doing: bool = False) -> Any:
         Path("/root/.config/kraken"),
     ]
     delete_everything(Path(appdirs.user_config_dir()), ignore=ignore)
+
+
+@app.get("/services/enabled", status_code=status.HTTP_200_OK)
+@version(1, 0)
+async def managed_service_states() -> Dict[str, bool]:
+    return get_core_service_states(STARTUP_CONFIG_PATH)
+
+
+@app.put("/services/{service_name}", status_code=status.HTTP_200_OK)
+@version(1, 0)
+async def set_managed_service_state(service_name: str, enabled: bool) -> Dict[str, bool]:
+    if service_name not in MANAGED_CORE_SERVICES:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unsupported managed service: {service_name}",
+        )
+    return set_core_service_enabled(STARTUP_CONFIG_PATH, service_name, enabled)
 
 
 @app.post("/services/remove_log", status_code=status.HTTP_200_OK)

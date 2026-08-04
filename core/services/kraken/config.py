@@ -8,6 +8,11 @@ DEFAULT_MANIFESTS = [
         "name": "BlueOS Extensions Repository",
         "url": "https://bluerobotics.github.io/BlueOS-Extensions-Repository/manifest.json",
     },
+    {
+        "identifier": "jackskellet-extensions",
+        "name": "Jack's BlueOS Extensions Repository",
+        "url": "https://jackskellet.github.io/Jacks_BlueOS_Extension_Repo/manifest.json",
+    },
 ]
 
 DEFAULT_EXTENSIONS = [
