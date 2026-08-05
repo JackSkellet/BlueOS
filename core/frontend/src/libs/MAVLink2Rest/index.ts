@@ -272,6 +272,11 @@ class Mavlink2RestManager {
    * @param {string} type Valid mavlink parameter type based on mavlink2rest
    */
   setParam(name: string, value: number, sysid: number, type?: string): void {
+    const param_name = [...name]
+    while (param_name.length < 16) {
+      param_name.push('\0')
+    }
+
     this.sendMessageViaWebsocket({
       header: {
         system_id: 255,
@@ -283,7 +288,7 @@ class Mavlink2RestManager {
         param_value: value,
         target_system: sysid,
         target_component: 0,
-        param_id: name,
+        param_id: param_name,
         param_type: {
           type: type ?? 'MAV_PARAM_TYPE_UINT8',
         },
