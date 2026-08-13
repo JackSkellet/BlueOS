@@ -11,8 +11,12 @@ import back_axios, { isBackendOffline } from '@/utils/api'
 const notifier = new Notifier(commander_service)
 
 export interface ManagedServiceStates {
+  bluetooth: boolean
+  client_internet: boolean
   ping: boolean
   recorder: boolean
+  video: boolean
+  wifi: boolean
 }
 
 @Module({
@@ -31,8 +35,12 @@ class CommanderStore extends VuexModule {
   on_board_computer_immediate_reboot = false
 
   managed_service_states: ManagedServiceStates = {
+    bluetooth: true,
+    client_internet: false,
     ping: true,
     recorder: true,
+    video: true,
+    wifi: true,
   }
 
   @Mutation
@@ -58,8 +66,12 @@ class CommanderStore extends VuexModule {
       timeout: 10000,
     })
     const states = {
+      bluetooth: Boolean(response.data?.bluetooth),
+      client_internet: Boolean(response.data?.client_internet),
       ping: Boolean(response.data?.ping),
       recorder: Boolean(response.data?.recorder),
+      video: Boolean(response.data?.video),
+      wifi: Boolean(response.data?.wifi),
     }
     this.setManagedServiceStates(states)
     return states
