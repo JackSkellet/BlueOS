@@ -1,10 +1,12 @@
 #! /usr/bin/env python3
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import subprocess
 import time
+import urllib.request
 from enum import Enum
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List
@@ -17,7 +19,7 @@ from commonwealth.utils.logs import InterceptHandler, init_logger
 from commonwealth.utils.sentry_config import init_sentry_async
 from commonwealth.utils.streaming import streamer
 from dump_host_logs import prepare_system_logs
-from fastapi import FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi_versioning import VersionedFastAPI, version
 from filebrowser.filebrowser import filebrowser
@@ -29,9 +31,13 @@ from parameter_profiles import (
     rename_parameter_profile,
 )
 from service_control import (
-    MANAGED_CORE_SERVICES,
     get_core_service_states,
-    set_core_service_enabled,
+    get_radio_states,
+    get_topside_internet_enabled,
+    restore_topside_internet,
+    set_core_service_states,
+    set_radio_states,
+    set_topside_internet_enabled,
 )
 from uvicorn import Config, Server
 
@@ -40,6 +46,7 @@ LOG_FOLDER_PATH = os.environ.get("BLUEOS_LOG_FOLDER_PATH", "/var/logs/blueos")
 MAVLINK_LOG_FOLDER_PATH = os.environ.get("BLUEOS_MAVLINK_LOG_FOLDER_PATH", "/shortcuts/ardupilot_logs/logs/")
 STARTUP_CONFIG_PATH = Path(appdirs.user_config_dir("bootstrap"), "startup.json")
 PARAMETER_PROFILES_PATH = Path(appdirs.user_config_dir(SERVICE_NAME), "parameter_profiles.json")
+TOPSIDE_INTERNET_CONFIG_PATH = Path(appdirs.user_config_dir(SERVICE_NAME), "topside_internet.json")
 
 logging.basicConfig(handlers=[InterceptHandler()], level=0)
 init_logger(SERVICE_NAME)
@@ -50,6 +57,40 @@ app = FastAPI(
 )
 app.router.route_class = GenericErrorHandlingRoute
 logger.info("Starting Commander!")
+
+
+@app.on_event("startup")
+async def restore_managed_network_settings() -> None:
+    try:
+        restore_topside_internet(TOPSIDE_INTERNET_CONFIG_PATH)
+    except Exception as error:
+        logger.error(f"Failed to restore Topside Internet: {error}")
+
+
+def apply_managed_service_states(states: Dict[str, bool], gateway: str) -> None:
+    try:
+        set_topside_internet_enabled(
+            TOPSIDE_INTERNET_CONFIG_PATH,
+            states["client_internet"],
+            gateway,
+        )
+        set_radio_states({"wifi": states["wifi"], "bluetooth": states["bluetooth"]})
+        set_core_service_states(
+            STARTUP_CONFIG_PATH,
+            {
+                "ping": states["ping"],
+                "recorder": states["recorder"],
+                "video": states["video"],
+            },
+        )
+        restart_request = urllib.request.Request(
+            "http://127.0.0.1:8081/v1.0/version/restart",
+            method="POST",
+        )
+        with urllib.request.urlopen(restart_request, timeout=10):
+            pass
+    except Exception as error:
+        logger.error(f"Failed to apply managed settings: {error}")
 
 
 class ShutdownType(str, Enum):
@@ -193,18 +234,44 @@ async def reset_settings(i_know_what_i_am_doing: bool = False) -> Any:
 @app.get("/services/enabled", status_code=status.HTTP_200_OK)
 @version(1, 0)
 async def managed_service_states() -> Dict[str, bool]:
-    return get_core_service_states(STARTUP_CONFIG_PATH)
+    return {
+        **get_core_service_states(STARTUP_CONFIG_PATH),
+        **get_radio_states(),
+        "client_internet": get_topside_internet_enabled(TOPSIDE_INTERNET_CONFIG_PATH),
+    }
 
 
-@app.put("/services/{service_name}", status_code=status.HTTP_200_OK)
+@app.put("/services/enabled", status_code=status.HTTP_200_OK)
 @version(1, 0)
-async def set_managed_service_state(service_name: str, enabled: bool) -> Dict[str, bool]:
-    if service_name not in MANAGED_CORE_SERVICES:
+async def set_managed_service_states(
+    states: Dict[str, bool],
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> Dict[str, bool]:
+    expected_states = {"ping", "recorder", "video", "wifi", "bluetooth", "client_internet"}
+    if set(states) != expected_states:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unsupported managed service: {service_name}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Settings must contain: {', '.join(sorted(expected_states))}",
         )
-    return set_core_service_enabled(STARTUP_CONFIG_PATH, service_name, enabled)
+
+    gateway = (request.headers.get("x-real-ip") or request.client.host) if request.client else None
+    if states["client_internet"]:
+        try:
+            gateway_address = ipaddress.ip_address(gateway or "")
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid topside gateway",
+            ) from error
+        if gateway_address.version != 4 or gateway_address.is_loopback:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Topside gateway must be an IPv4 client",
+            )
+
+    background_tasks.add_task(apply_managed_service_states, states, gateway or "")
+    return states
 
 
 @app.get("/parameter_profiles", status_code=status.HTTP_200_OK)
