@@ -59,7 +59,6 @@ app.router.route_class = GenericErrorHandlingRoute
 logger.info("Starting Commander!")
 
 
-@app.on_event("startup")
 async def restore_managed_network_settings() -> None:
     try:
         restore_topside_internet(TOPSIDE_INTERNET_CONFIG_PATH)
@@ -452,6 +451,7 @@ def setup_ssh() -> None:
 
 async def main() -> None:
     await init_sentry_async(SERVICE_NAME)
+    await restore_managed_network_settings()
 
     setup_ssh()
     # Register ssh client and remove message from the following commands
