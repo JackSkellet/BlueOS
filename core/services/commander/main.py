@@ -34,6 +34,7 @@ from service_control import (
     get_core_service_states,
     get_radio_states,
     get_topside_internet_enabled,
+    restore_radio_states,
     restore_topside_internet,
     set_core_service_states,
     set_radio_states,
@@ -46,6 +47,7 @@ LOG_FOLDER_PATH = os.environ.get("BLUEOS_LOG_FOLDER_PATH", "/var/logs/blueos")
 MAVLINK_LOG_FOLDER_PATH = os.environ.get("BLUEOS_MAVLINK_LOG_FOLDER_PATH", "/shortcuts/ardupilot_logs/logs/")
 STARTUP_CONFIG_PATH = Path(appdirs.user_config_dir("bootstrap"), "startup.json")
 PARAMETER_PROFILES_PATH = Path(appdirs.user_config_dir(SERVICE_NAME), "parameter_profiles.json")
+RADIO_STATES_CONFIG_PATH = Path(appdirs.user_config_dir(SERVICE_NAME), "radio_states.json")
 TOPSIDE_INTERNET_CONFIG_PATH = Path(appdirs.user_config_dir(SERVICE_NAME), "topside_internet.json")
 
 logging.basicConfig(handlers=[InterceptHandler()], level=0)
@@ -64,6 +66,10 @@ async def restore_managed_network_settings() -> None:
         restore_topside_internet(TOPSIDE_INTERNET_CONFIG_PATH)
     except Exception as error:
         logger.error(f"Failed to restore Topside Internet: {error}")
+    try:
+        restore_radio_states(RADIO_STATES_CONFIG_PATH)
+    except Exception as error:
+        logger.error(f"Failed to restore radio states: {error}")
 
 
 def apply_managed_service_states(states: Dict[str, bool], gateway: str) -> None:
@@ -73,13 +79,17 @@ def apply_managed_service_states(states: Dict[str, bool], gateway: str) -> None:
             states["client_internet"],
             gateway,
         )
-        set_radio_states({"wifi": states["wifi"], "bluetooth": states["bluetooth"]})
+        set_radio_states(
+            {"wifi": states["wifi"], "bluetooth": states["bluetooth"]},
+            settings_path=RADIO_STATES_CONFIG_PATH,
+        )
         set_core_service_states(
             STARTUP_CONFIG_PATH,
             {
                 "ping": states["ping"],
                 "recorder": states["recorder"],
                 "video": states["video"],
+                "zenohd": states["zenohd"],
             },
         )
         restart_request = urllib.request.Request(
@@ -247,7 +257,7 @@ async def set_managed_service_states(
     request: Request,
     background_tasks: BackgroundTasks,
 ) -> Dict[str, bool]:
-    expected_states = {"ping", "recorder", "video", "wifi", "bluetooth", "client_internet"}
+    expected_states = {"ping", "recorder", "video", "zenohd", "wifi", "bluetooth", "client_internet"}
     if set(states) != expected_states:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

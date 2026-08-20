@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 DISABLED_SERVICES_ENVIRONMENT_VARIABLE = "BLUEOS_DISABLE_SERVICES"
-MANAGED_CORE_SERVICES = ("ping", "recorder", "video")
+MANAGED_CORE_SERVICES = ("ping", "recorder", "video", "zenohd")
 MANAGED_RADIOS = {"wifi": 1, "bluetooth": 2}
 RFKILL_CHANGE_ALL_OPERATION = 3
 RFKILL_DEVICE_PATH = Path("/dev/rfkill")
@@ -100,6 +100,7 @@ def set_radio_states(
     states: Dict[str, bool],
     device_path: Path = RFKILL_DEVICE_PATH,
     sysfs_path: Path = RFKILL_SYSFS_PATH,
+    settings_path: Optional[Path] = None,
 ) -> Dict[str, bool]:
     unsupported_radios = set(states) - set(MANAGED_RADIOS)
     if unsupported_radios:
@@ -115,7 +116,27 @@ def set_radio_states(
         with device_path.open("wb", buffering=0) as rfkill_device:
             for event in events:
                 rfkill_device.write(event)
+    if settings_path is not None:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(f"{json.dumps(states, indent=4)}\n", encoding="utf-8")
     return states
+
+
+def restore_radio_states(
+    path: Path,
+    device_path: Path = RFKILL_DEVICE_PATH,
+    sysfs_path: Path = RFKILL_SYSFS_PATH,
+) -> None:
+    if not path.exists():
+        return
+    states = json.loads(path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(states, dict)
+        or set(states) != set(MANAGED_RADIOS)
+        or any(not isinstance(enabled, bool) for enabled in states.values())
+    ):
+        raise ValueError("Radio settings must contain boolean wifi and bluetooth states")
+    set_radio_states(states, device_path=device_path, sysfs_path=sysfs_path)
 
 
 def _run_ip_command(arguments: List[str]) -> subprocess.CompletedProcess[str]:

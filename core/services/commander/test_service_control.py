@@ -10,6 +10,7 @@ from service_control import (
     get_core_service_states,
     get_radio_states,
     get_topside_internet_enabled,
+    restore_radio_states,
     restore_topside_internet,
     set_core_service_states,
     set_radio_states,
@@ -25,17 +26,23 @@ def test_service_states_follow_disabled_services_list(tmp_path: Path) -> None:
     startup_path = tmp_path / "startup.json"
     write_startup_config(startup_path, ["EXISTING=value", "BLUEOS_DISABLE_SERVICES=wifi,ping"])
 
-    assert get_core_service_states(startup_path) == {"ping": False, "recorder": True, "video": True}
+    assert get_core_service_states(startup_path) == {
+        "ping": False,
+        "recorder": True,
+        "video": True,
+        "zenohd": True,
+    }
 
-    assert set_core_service_states(startup_path, {"recorder": False, "ping": True}) == {
+    assert set_core_service_states(startup_path, {"recorder": False, "ping": True, "zenohd": False}) == {
         "ping": True,
         "recorder": False,
         "video": True,
+        "zenohd": False,
     }
     config = json.loads(startup_path.read_text(encoding="utf-8"))
     assert config["core"]["environment"] == [
         "EXISTING=value",
-        "BLUEOS_DISABLE_SERVICES=recorder,wifi",
+        "BLUEOS_DISABLE_SERVICES=recorder,wifi,zenohd",
     ]
 
 
@@ -43,7 +50,12 @@ def test_service_states_support_environment_object(tmp_path: Path) -> None:
     startup_path = tmp_path / "startup.json"
     write_startup_config(startup_path, {"EXISTING": "value", "BLUEOS_DISABLE_SERVICES": "recorder"})
 
-    assert get_core_service_states(startup_path) == {"ping": True, "recorder": False, "video": True}
+    assert get_core_service_states(startup_path) == {
+        "ping": True,
+        "recorder": False,
+        "video": True,
+        "zenohd": True,
+    }
 
     set_core_service_states(startup_path, {"recorder": True})
     config = json.loads(startup_path.read_text(encoding="utf-8"))
@@ -71,12 +83,14 @@ def test_radio_states_use_rfkill_events(tmp_path: Path) -> None:
     write_radio_state(sysfs_path, 0, "wlan", True)
     write_radio_state(sysfs_path, 1, "bluetooth", False)
     device_path = tmp_path / "rfkill"
+    settings_path = tmp_path / "commander" / "radio_states.json"
 
     assert get_radio_states(sysfs_path) == {"wifi": False, "bluetooth": True}
     assert set_radio_states(
         {"wifi": True, "bluetooth": False},
         device_path=device_path,
         sysfs_path=sysfs_path,
+        settings_path=settings_path,
     ) == {"wifi": True, "bluetooth": False}
     assert device_path.read_bytes() == b"".join(
         (
@@ -84,6 +98,20 @@ def test_radio_states_use_rfkill_events(tmp_path: Path) -> None:
             struct.pack("<IBBBB", 0, 2, 3, 1, 0),
         )
     )
+    assert json.loads(settings_path.read_text(encoding="utf-8")) == {"wifi": True, "bluetooth": False}
+
+    (sysfs_path / "rfkill0" / "soft").write_text("0\n", encoding="utf-8")
+    (sysfs_path / "rfkill1" / "soft").write_text("0\n", encoding="utf-8")
+    restore_radio_states(settings_path, device_path=device_path, sysfs_path=sysfs_path)
+    assert device_path.read_bytes() == struct.pack("<IBBBB", 0, 2, 3, 1, 0)
+
+
+def test_restore_radio_states_without_saved_settings_does_nothing(tmp_path: Path) -> None:
+    device_path = tmp_path / "rfkill"
+
+    restore_radio_states(tmp_path / "missing.json", device_path=device_path, sysfs_path=tmp_path)
+
+    assert not device_path.exists()
 
 
 def test_radio_states_require_both_radios(tmp_path: Path) -> None:
