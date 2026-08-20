@@ -17,6 +17,7 @@ export interface ManagedServiceStates {
   recorder: boolean
   video: boolean
   wifi: boolean
+  zenohd: boolean
 }
 
 @Module({
@@ -41,6 +42,7 @@ class CommanderStore extends VuexModule {
     recorder: true,
     video: true,
     wifi: true,
+    zenohd: true,
   }
 
   @Mutation
@@ -72,6 +74,7 @@ class CommanderStore extends VuexModule {
       recorder: Boolean(response.data?.recorder),
       video: Boolean(response.data?.video),
       wifi: Boolean(response.data?.wifi),
+      zenohd: Boolean(response.data?.zenohd),
     }
     this.setManagedServiceStates(states)
     return states

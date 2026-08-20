@@ -120,7 +120,8 @@ import back_axios from '@/utils/api'
 
 const MAJOR_TOM_EXTENSION_IDENTIFIER = 'blueos.major_tom'
 
-type SettingIdentifier = 'ping' | 'cloud' | 'recorder' | 'video' | 'wifi' | 'bluetooth' | 'client_internet'
+type SettingIdentifier =
+  'ping' | 'cloud' | 'recorder' | 'video' | 'zenohd' | 'wifi' | 'bluetooth' | 'client_internet'
 
 interface SettingsSnapshot extends ManagedServiceStates {
   cloud: boolean
@@ -145,6 +146,7 @@ export default Vue.extend({
       ping_enabled: true,
       recorder_enabled: true,
       video_enabled: true,
+      zenohd_enabled: true,
       cloud_enabled: false,
       cloud_available: false,
       cloud_tag: '',
@@ -210,6 +212,16 @@ export default Vue.extend({
           available: true,
         },
         {
+          identifier: 'zenohd',
+          category: 'Optional services',
+          name: 'Zenoh',
+          description: 'Provides BlueOS internal publish and subscribe communication',
+          icon: 'mdi-share-variant',
+          color: 'secondary',
+          enabled: this.zenohd_enabled,
+          available: true,
+        },
+        {
           identifier: 'wifi',
           category: 'Connectivity',
           name: 'Onboard Wi-Fi',
@@ -250,6 +262,7 @@ export default Vue.extend({
           || original.cloud !== this.cloud_enabled
           || original.recorder !== this.recorder_enabled
           || original.video !== this.video_enabled
+          || original.zenohd !== this.zenohd_enabled
           || original.wifi !== this.wifi_enabled
           || original.bluetooth !== this.bluetooth_enabled
           || original.client_internet !== this.client_internet_enabled
@@ -287,6 +300,7 @@ export default Vue.extend({
         recorder: this.recorder_enabled,
         video: this.video_enabled,
         wifi: this.wifi_enabled,
+        zenohd: this.zenohd_enabled,
       }
     },
 
@@ -304,6 +318,7 @@ export default Vue.extend({
         this.recorder_enabled = core_response.recorder
         this.video_enabled = core_response.video
         this.wifi_enabled = core_response.wifi
+        this.zenohd_enabled = core_response.zenohd
 
         const cloud = installed_extensions.find(
           (extension) => extension.identifier === MAJOR_TOM_EXTENSION_IDENTIFIER,
@@ -324,6 +339,7 @@ export default Vue.extend({
       if (setting === 'cloud') this.cloud_enabled = enabled
       if (setting === 'recorder') this.recorder_enabled = enabled
       if (setting === 'video') this.video_enabled = enabled
+      if (setting === 'zenohd') this.zenohd_enabled = enabled
       if (setting === 'wifi') this.wifi_enabled = enabled
       if (setting === 'bluetooth') this.bluetooth_enabled = enabled
       if (setting === 'client_internet') this.client_internet_enabled = enabled
@@ -339,6 +355,7 @@ export default Vue.extend({
       this.recorder_enabled = original.recorder
       this.video_enabled = original.video
       this.wifi_enabled = original.wifi
+      this.zenohd_enabled = original.zenohd
     },
 
     async setCloudService(enabled: boolean): Promise<void> {
@@ -370,6 +387,7 @@ export default Vue.extend({
           recorder: this.recorder_enabled,
           video: this.video_enabled,
           wifi: this.wifi_enabled,
+          zenohd: this.zenohd_enabled,
         }
         await back_axios({
           method: 'put',
